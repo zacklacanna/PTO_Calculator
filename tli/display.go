@@ -4,10 +4,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-func InitTUI() {
-	var v tea.View
+type startupModel struct{}
 
-	HandleStartup(v)
+func InitTUI() {
+	m := startupModel{}
+	tea.NewProgram(m).Run()
 }
 
 // options for TLI

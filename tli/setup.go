@@ -21,7 +21,7 @@ func SetupData() {
 	// ask user for name
 	//
 	// ask if user has off every other friday
-	//yes: ask if it is this friday
+	//yes: ask if it is this frida
 	//save 0 or 1 for even or odd week, use to calculate for all future trips
 	//no: save -1 and false for fridayoffs
 

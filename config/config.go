@@ -3,45 +3,63 @@ package config
 import (
 	"fmt"
 	"os"
-	"pto_calculator/pto"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	CurrentDays   int     `json:"currentdays"`
-	Rate          float64 `json:"rate"`
-	Max           int     `json:"maxdays"`
-	HasOffFridays bool    `json:"hasOffFridays"`
-	NextFridayOff string  `json:"nextfridayoff"`
-	UserName      string  `json:"user"`
+	CurrentDays   int     `yaml:"currentdays"`
+	Rate          float64 `yaml:"rate"`
+	Max           int     `yaml:"maxdays"`
+	HasOffFridays bool    `yaml:"hasOffFridays"`
+	NextFridayOff string  `yaml:"nextfridayoff"`
+	UserName      string  `yaml:"user"`
+}
+
+type Trip struct {
+	Name      string    `yaml:"name"`
+	StartDate time.Time `yaml:"startDate"`
+	EndDate   time.Time `yaml:"endDate"`
+}
+
+type Holiday struct {
+	Name string    `yaml:"name"`
+	Date time.Time `yaml:"date"`
 }
 
 type SavedTrips struct {
-	trips []pto.Trip `json:"trips"`
+	Trips map[string]Trip `yaml:"trips"`
 }
+
+const (
+	ConfigPath = "config.yml"
+	TripPath   = "trips.yml"
+)
 
 var settings Config
+var savedTrips SavedTrips
 
-func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("Could not find config file!")
-	}
-
-	var cfg Config
-	err = yaml.Unmarshal(data, &cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	settings = cfg
-	return &cfg, nil
+func GetSettings() *Config {
+	return &settings
 }
 
-func Save(cfg *Config, path string) error {
+func GetSavedTrips() *SavedTrips {
+	return &savedTrips
+}
 
-	data, err := yaml.Marshal(cfg)
+func Load(path string, out any) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("Could not find config file!")
+	}
+
+	return yaml.Unmarshal(data, out)
+}
+
+func Save(path string, out any) error {
+
+	data, err := yaml.Marshal(out)
 	if err != nil {
 		return err
 	}
@@ -51,6 +69,5 @@ func Save(cfg *Config, path string) error {
 		return err
 	}
 
-	settings = *cfg
 	return nil
 }
