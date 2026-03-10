@@ -13,7 +13,6 @@ func RemoveHoliday(name string) {
 
 }
 
-func CheckHoliday(name string, startDate ...time.Time, endDate ...time.Time) {
+func CheckHoliday(name string, startDate time.Time, endDate time.Time) {
 
 }
-

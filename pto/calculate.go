@@ -17,4 +17,9 @@ func CalculatePtoAtDate(startDate time.Time) {
 	cfg := config.GetSettings()
 	trips := config.GetSavedTrips()
 
+	startingBalance := cfg.CurrentDays
+	for _, trips := range trips {
+
+	}
+
 }
