@@ -14,14 +14,14 @@ func AddNewTrip(tripReq *config.Trip) error {
 		return fmt.Errorf("Invalid config files")
 	}
 
+	//parse trip settings
+	// name doesnt already exist
+	// no overlapping dates with another saved trip
+
 	_, err := checkValidNewTrip(tripReq)
 	if err != nil {
 		return err
 	}
-
-	//parse trip settings
-	// name doesnt already exist
-	// no overlapping dates with another saved trip
 
 	// calculate Pto at time of start of trip
 

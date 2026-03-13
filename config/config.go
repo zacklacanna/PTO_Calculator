@@ -9,12 +9,14 @@ import (
 )
 
 type Config struct {
-	CurrentDays   int     `yaml:"currentdays"`
-	Rate          float64 `yaml:"rate"`
-	Max           int     `yaml:"maxdays"`
-	HasOffFridays bool    `yaml:"hasOffFridays"`
-	NextFridayOff string  `yaml:"nextfridayoff"`
-	UserName      string  `yaml:"user"`
+	InitialBalance float64   `yaml:"initialBalance"`
+	Rate           float64   `yaml:"rate"`
+	Max            int       `yaml:"maxdays"`
+	HasOffFridays  bool      `yaml:"hasOffFridays"`
+	WhichFridayOff int       `yaml:"whichFridayOff"`
+	UserName       string    `yaml:"user"`
+	FirstDay       time.Time `yaml:"firstDay"`
+	DailyHours     int       `yaml:"dailyHours"`
 }
 
 type Trip struct {
@@ -32,13 +34,19 @@ type SavedTrips struct {
 	Trips map[string]Trip `yaml:"trips"`
 }
 
+type SavedHolidays struct {
+	Holidays map[time.Time]Holiday `yaml:"holidays"`
+}
+
 const (
-	ConfigPath = "config.yml"
-	TripPath   = "trips.yml"
+	ConfigPath   = "config.yml"
+	TripPath     = "trips.yml"
+	HolidaysPath = "holidays.yml"
 )
 
 var settings Config
 var savedTrips SavedTrips
+var savedHolidays SavedHolidays
 
 func GetSettings() *Config {
 	return &settings
@@ -46,6 +54,16 @@ func GetSettings() *Config {
 
 func GetSavedTrips() *SavedTrips {
 	return &savedTrips
+}
+
+func GetHolidays() *SavedHolidays {
+	return &savedHolidays
+}
+
+func LoadDefaults() {
+
+	// generate all the inital files
+
 }
 
 func Load(path string, out any) error {
