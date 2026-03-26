@@ -5,29 +5,37 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"pto_calculator/config"
 )
 
 type setupField struct {
-	Key         string
-	Label       string
-	Placeholder string
-	Hint        string
-	Value       string
+	Key     string
+	Label   string
+	Default string
+	Hint    string
+	Value   string
+	Edited  bool
 }
 
 func defaultSetupFields() []setupField {
-	return []setupField{
-		{Key: "user", Label: "User name", Placeholder: "Zack", Hint: "Name shown on the dashboard."},
-		{Key: "initialBalance", Label: "Starting hours", Placeholder: "120", Hint: "Current PTO balance in hours."},
-		{Key: "rate", Label: "Accrual rate", Placeholder: "4.62", Hint: "Hours earned each pay period."},
-		{Key: "maxdays", Label: "Max days", Placeholder: "25", Hint: "Maximum PTO days allowed to sit in the bank."},
-		{Key: "dailyHours", Label: "Daily hours", Placeholder: "8", Hint: "Hours deducted for one PTO workday."},
-		{Key: "firstDay", Label: "First work day", Placeholder: "2026-01-05", Hint: "Use YYYY-MM-DD."},
-		{Key: "hasOffFridays", Label: "Off Fridays", Placeholder: "yes", Hint: "Type yes or no."},
-		{Key: "whichFridayOff", Label: "Friday cycle", Placeholder: "0", Hint: "Only used if you have off Fridays. Use 0 or 1."},
+	fields := []setupField{
+		{Key: "user", Label: "User name", Default: "Zack", Hint: "Name shown on the dashboard."},
+		{Key: "initialBalance", Label: "Starting hours", Default: "120", Hint: "Current PTO balance in hours."},
+		{Key: "rate", Label: "Accrual rate", Default: "4.62", Hint: "Hours earned each pay period."},
+		{Key: "maxdays", Label: "Max days", Default: "25", Hint: "Maximum PTO days allowed to sit in the bank."},
+		{Key: "dailyHours", Label: "Daily hours", Default: "8", Hint: "Hours deducted for one PTO workday."},
+		{Key: "firstDay", Label: "First work day", Default: "2026-01-05", Hint: "Use YYYY-MM-DD."},
+		{Key: "hasOffFridays", Label: "Off Fridays", Default: "yes", Hint: "Type yes or no."},
+		{Key: "whichFridayOff", Label: "Friday cycle", Default: "0", Hint: "Only used if you have off Fridays. Use 0 or 1."},
 	}
+
+	for i := range fields {
+		fields[i].Value = fields[i].Default
+	}
+
+	return fields
 }
 
 func saveConfig(cfg config.Config) error {
@@ -144,13 +152,38 @@ func parseBool(value string) (bool, error) {
 	}
 }
 
+func shouldShowFridayCycle(fields []setupField) bool {
+	for _, field := range fields {
+		if field.Key == "hasOffFridays" {
+			enabled, err := parseBool(strings.TrimSpace(field.Value))
+			return err == nil && enabled
+		}
+	}
+
+	return false
+}
+
+func visibleFieldIndexes(fields []setupField) []int {
+	showFridayCycle := shouldShowFridayCycle(fields)
+	indexes := make([]int, 0, len(fields))
+	for i, field := range fields {
+		if field.Key == "whichFridayOff" && !showFridayCycle {
+			continue
+		}
+		indexes = append(indexes, i)
+	}
+
+	return indexes
+}
+
 func bannerArt() string {
 	return strings.TrimSpace(`
- ____  _______ ___
-|  _ \|_   _|_ _|
-| |_) | | |  | |
-|  __/  | |  | |
-|_|     |_| |___|
+██████╗ ████████╗ ██████╗
+██╔══██╗╚══██╔══╝██╔═══██╗
+██████╔╝   ██║   ██║   ██║
+██╔═══╝    ██║   ██║   ██║
+██║        ██║   ╚██████╔╝
+╚═╝        ╚═╝    ╚═════╝
 `)
 }
 
@@ -172,7 +205,7 @@ func centerText(width int, text string) string {
 
 	lines := strings.Split(text, "\n")
 	for i, line := range lines {
-		padding := (width - len(line)) / 2
+		padding := (width - visibleWidth(line)) / 2
 		if padding > 0 {
 			lines[i] = strings.Repeat(" ", padding) + line
 		}
@@ -189,8 +222,8 @@ func centerBlock(width int, text string) string {
 	lines := strings.Split(text, "\n")
 	maxLen := 0
 	for _, line := range lines {
-		if len(line) > maxLen {
-			maxLen = len(line)
+		if visibleWidth(line) > maxLen {
+			maxLen = visibleWidth(line)
 		}
 	}
 
@@ -205,4 +238,80 @@ func centerBlock(width int, text string) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func ansi(code string, text string) string {
+	return "\033[" + code + "m" + text + "\033[0m"
+}
+
+func muted(text string) string {
+	return ansi("38;5;245", text)
+}
+
+func accent(text string) string {
+	return ansi("38;5;81", text)
+}
+
+func highlight(text string) string {
+	return ansi("38;5;229", text)
+}
+
+func success(text string) string {
+	return ansi("38;5;120", text)
+}
+
+func danger(text string) string {
+	return ansi("38;5;210", text)
+}
+
+func strong(text string) string {
+	return ansi("1", text)
+}
+
+func box(title string, lines []string) string {
+	width := visibleWidth(title) + 4
+	for _, line := range lines {
+		if visibleWidth(line) > width-4 {
+			width = visibleWidth(line) + 4
+		}
+	}
+
+	top := "┌" + strings.Repeat("─", width-2) + "┐"
+	header := "│ " + strong(title) + strings.Repeat(" ", width-visibleWidth(title)-3) + "│"
+	body := make([]string, 0, len(lines)+3)
+	body = append(body, top, header, "├"+strings.Repeat("─", width-2)+"┤")
+	for _, line := range lines {
+		padding := width - visibleWidth(line) - 3
+		if padding < 0 {
+			padding = 0
+		}
+		body = append(body, "│ "+line+strings.Repeat(" ", padding)+"│")
+	}
+	body = append(body, "└"+strings.Repeat("─", width-2)+"┘")
+	return strings.Join(body, "\n")
+}
+
+func visibleWidth(text string) int {
+	width := 0
+	for i := 0; i < len(text); {
+		if text[i] == '\x1b' && i+1 < len(text) && text[i+1] == '[' {
+			i += 2
+			for i < len(text) && text[i] != 'm' {
+				i++
+			}
+			if i < len(text) {
+				i++
+			}
+			continue
+		}
+
+		_, size := utf8.DecodeRuneInString(text[i:])
+		if size == 0 {
+			break
+		}
+		width++
+		i += size
+	}
+
+	return width
 }

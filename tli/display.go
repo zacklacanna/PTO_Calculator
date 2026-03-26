@@ -23,6 +23,7 @@ type startupModel struct {
 	height       int
 	fields       []setupField
 	currentField int
+	visible      []int
 	status       string
 	errText      string
 	configReady  bool
@@ -41,6 +42,7 @@ func InitTUI() error {
 func newStartupModel() (startupModel, error) {
 	m := startupModel{
 		fields: defaultSetupFields(),
+		visible: visibleFieldIndexes(defaultSetupFields()),
 		status: "Press enter to start setup.",
 	}
 
@@ -57,6 +59,7 @@ func newStartupModel() (startupModel, error) {
 	}
 
 	m.mode = modeWelcome
+	m.visible = visibleFieldIndexes(m.fields)
 	return m, nil
 }
 
@@ -93,6 +96,7 @@ func (m startupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m startupModel) updateWelcome(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "enter" {
 		m.mode = modeForm
+		m.visible = visibleFieldIndexes(m.fields)
 		m.status = "Fill in each field. Tab moves forward, shift+tab moves back."
 		m.errText = ""
 	}
@@ -100,21 +104,24 @@ func (m startupModel) updateWelcome(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m startupModel) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	m.visible = visibleFieldIndexes(m.fields)
+	current := m.currentVisibleField()
+
 	switch msg.String() {
 	case "up", "shift+tab":
-		if m.currentField > 0 {
-			m.currentField--
+		if current > 0 {
+			m.currentField = m.visible[current-1]
 		}
 		m.errText = ""
 		return m, nil
 	case "down", "tab":
-		if m.currentField < len(m.fields)-1 {
-			m.currentField++
+		if current < len(m.visible)-1 {
+			m.currentField = m.visible[current+1]
 		}
 		m.errText = ""
 		return m, nil
 	case "enter":
-		if m.currentField == len(m.fields)-1 {
+		if current == len(m.visible)-1 {
 			cfg, err := buildConfig(m.fields)
 			if err != nil {
 				m.errText = err.Error()
@@ -133,20 +140,39 @@ func (m startupModel) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		m.currentField++
+		m.currentField = m.visible[current+1]
 		m.errText = ""
 		return m, nil
 	case "backspace":
 		field := &m.fields[m.currentField]
 		if len(field.Value) > 0 {
 			field.Value = field.Value[:len(field.Value)-1]
+			field.Edited = true
 		}
 		m.errText = ""
 		return m, nil
 	}
 
 	if text := msg.Key().Text; text != "" {
-		m.fields[m.currentField].Value += text
+		field := &m.fields[m.currentField]
+		if !field.Edited {
+			field.Value = ""
+		}
+		field.Value += text
+		field.Edited = true
+		if field.Key == "hasOffFridays" {
+			m.visible = visibleFieldIndexes(m.fields)
+			if !shouldShowFridayCycle(m.fields) && m.fields[m.currentField].Key == "hasOffFridays" {
+				for _, index := range m.visible {
+					if m.fields[index].Key != "whichFridayOff" {
+						continue
+					}
+				}
+				if m.currentVisibleField() >= len(m.visible) {
+					m.currentField = m.visible[len(m.visible)-1]
+				}
+			}
+		}
 		m.errText = ""
 	}
 
@@ -156,8 +182,8 @@ func (m startupModel) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m startupModel) View() tea.View {
 	var b strings.Builder
 
-	b.WriteString("\n")
-	b.WriteString(centerText(m.width, bannerArt()))
+	b.WriteString("\n\n")
+	b.WriteString(centerText(m.width, accent(bannerArt())))
 	b.WriteString("\n\n")
 
 	switch m.mode {
@@ -175,34 +201,43 @@ func (m startupModel) View() tea.View {
 }
 
 func (m startupModel) renderForm() string {
-	var b strings.Builder
+	m.visible = visibleFieldIndexes(m.fields)
+	lines := []string{
+		muted("Build your PTO profile once. You can refine it later."),
+		"",
+	}
 
-	b.WriteString("First-time setup\n")
-	b.WriteString("Build your PTO profile once. You can edit it later.\n\n")
-
-	for i, field := range m.fields {
-		cursor := "  "
-		if i == m.currentField {
-			cursor = "> "
-		}
-
+	for position, index := range m.visible {
+		field := m.fields[index]
+		prefix := muted("  ")
+		label := muted(field.Label)
 		value := field.Value
-		if value == "" {
-			value = field.Placeholder
+
+		if index == m.currentField {
+			prefix = accent("› ")
+			label = highlight(field.Label)
+			value = strong(value + " ")
 		}
 
-		b.WriteString(fmt.Sprintf("%s%-16s %s\n", cursor, field.Label+":", value))
-		if i == m.currentField {
-			b.WriteString(fmt.Sprintf("  %s\n\n", field.Hint))
+		lines = append(lines, fmt.Sprintf("%s%-16s %s", prefix, label, value))
+		if index == m.currentField {
+			lines = append(lines, muted(field.Hint))
+		}
+		if position != len(m.visible)-1 {
+			lines = append(lines, "")
 		}
 	}
 
 	if m.errText != "" {
-		b.WriteString("Error: " + m.errText + "\n\n")
+		lines = append(lines, "")
+		lines = append(lines, danger("Error: "+m.errText))
 	}
 
-	b.WriteString("Controls: type to edit, tab to move, enter to continue, q to quit")
-	return b.String()
+	lines = append(lines, "")
+	lines = append(lines, muted("Type to replace a default. Tab moves forward. Shift+Tab moves back."))
+	lines = append(lines, muted("Press enter on the last field to save."))
+
+	return box("First-Time Setup", lines)
 }
 
 func (m startupModel) renderReady() string {
@@ -211,11 +246,27 @@ func (m startupModel) renderReady() string {
 		name = "there"
 	}
 
-	return fmt.Sprintf(
-		"Setup complete\n\nWelcome, %s.\n%s\n\nPress enter to close this screen.",
-		name,
-		m.status,
-	)
+	return box("Setup Complete", []string{
+		success("Your PTO profile is ready."),
+		"",
+		"Welcome, " + strong(name) + ".",
+		muted(m.status),
+		"",
+		muted("Press enter to close this screen."),
+	})
+}
+
+func (m startupModel) currentVisibleField() int {
+	for i, index := range m.visible {
+		if index == m.currentField {
+			return i
+		}
+	}
+	if len(m.visible) == 0 {
+		return 0
+	}
+	m.currentField = m.visible[0]
+	return 0
 }
 
 func loadExistingConfig() (bool, error) {

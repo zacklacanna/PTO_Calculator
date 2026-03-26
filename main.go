@@ -32,4 +32,8 @@ func main() {
 
 	rootCmd.PersistentFlags().StringVar(&appType, "type", "tui", "ui type: tui|cli")
 
+	if err := rootCmd.Execute(); err != nil {
+		panic(err)
+	}
+
 }
