@@ -9,7 +9,7 @@ func AddNewTrip(tripReq *config.Trip) error {
 
 	//pull current config settings
 	var config = config.GetSettings()
-	if config.CurrentDays < 0 {
+	if config.InitialBalance < 0 {
 		// Tea flow for setting default settings
 		return fmt.Errorf("Invalid config files")
 	}
@@ -42,34 +42,45 @@ func GetTrip(trip *config.Trip) (config.Trip, error) {
 
 	currentTrips := config.GetSavedTrips()
 
-	trip, ok := currentTrips.Trips[name]
+	foundTrip, ok := currentTrips.Trips[trip.Name]
 	if !ok {
-		return config.Trip{}, fmt.Errorf("Could not find Trip %s", name)
+		return config.Trip{}, fmt.Errorf("Could not find Trip %s", trip.Name)
 	}
 
-	return trip, nil
+	return foundTrip, nil
 }
 
 func checkValidNewTrip(tripReq *config.Trip) (config.Trip, error) {
-
-	var foundTrip config.Trip
-	currentTrips := config.GetSavedTrips()
 
 	_, err := GetTrip(tripReq)
 	if err == nil {
 		return config.Trip{}, fmt.Errorf("A trip already exists with the name: %s", tripReq.Name)
 	}
 
-	for _, trip := range currentTrips.Trips {
-
-		// Check if trip start overlapps
-		if tripReq.StartDate.Before(trip.EndDate) && trip.StartDate.Before(tripReq.EndDate) {
-			return config.Trip{}, fmt.Errorf("This trip would overlap with %s", trip.Name)
-		}
+	foundOverlapTrip, ok := hasOverlappingTrip(tripReq, config.GetSavedTrips())
+	if !ok {
+		return config.Trip{}, fmt.Errorf("Could not create trip as it overlaps with %s", foundOverlapTrip.Name)
 	}
 
-	return foundTrip, nil
+	runningBalance, err := CalculatePtoAtDate(tripReq)
+	if err != nil {
+		return config.Trip{}, fmt.Errorf("Not enough PTO at start date to book this trip!")
+	}
 
+	if runningBalance >= 0 {
+		return *tripReq, nil
+	} else {
+		return config.Trip{}, fmt.Errorf("Could not create trip as would exceed PTO Balance!")
+	}
+}
+
+func hasOverlappingTrip(newTrip *config.Trip, savedTrips *config.SavedTrips) (config.Trip, bool) {
+	for _, trip := range savedTrips.Trips {
+		if !newTrip.EndDate.Before(trip.StartDate) && !trip.EndDate.Before(newTrip.StartDate) {
+			return trip, false
+		}
+	}
+	return config.Trip{}, true
 }
 
 func RemoveTrip(name string) error {

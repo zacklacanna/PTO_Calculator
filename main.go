@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"pto_calculator/cli"
 	"pto_calculator/tli"
 	"strings"
 
@@ -28,11 +26,10 @@ func main() {
 		case "cli":
 			return tli.InitTUI()
 		default:
-			return fmt.Errorf("--type must be tui or cli")
+			return tli.InitTUI()
 		}
 	}
 
-	rootCmd.AddCommand(cli.GetMainDisplay())
 	rootCmd.PersistentFlags().StringVar(&appType, "type", "tui", "ui type: tui|cli")
 
 }

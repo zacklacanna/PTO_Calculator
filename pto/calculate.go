@@ -13,7 +13,7 @@ import (
 
 // Add logic to calculate if PTO gained during the trip
 // This function does not factor in holidays, off fridays, just raw PTO & found trips
-func CalculatePtoAtDate(startDate time.Time) (float64, error) {
+func CalculatePtoAtDate(tripReq *config.Trip) (float64, error) {
 
 	cfg := config.GetSettings()
 	trips := config.GetSavedTrips()
@@ -32,29 +32,40 @@ func CalculatePtoAtDate(startDate time.Time) (float64, error) {
 	// Iterate through each trip and subtract from logic
 	for _, trip := range trips.Trips {
 
-		tripHours := 0.0
-		//Iterate through days of trip and subtract if it is not
-		// - Weekend
-		// - Off friday
-		// - Holiday
-
-		for d := normalizeDate(trip.StartDate); !d.After(normalizeDate(trip.EndDate)); d = d.AddDate(0, 0, 1) {
-
-			if IsOffFriday(d, cfg) || IsHoliday(d, holidays) || !IsWeekday(d) {
-				continue
-			}
-			tripHours += float64(cfg.DailyHours)
+		tripHours, err := CalcultePtoOfTrip(&trip, cfg, holidays)
+		if err != nil {
+			return -1, err
 		}
 
 		if runningBalance-tripHours < 0 {
-			// handle case where trips are exceeding PTO
-			return -1, fmt.Errorf("Trips exceed allowed PTO")
+			return -1, fmt.Errorf("Trip %s would exceed the PTO max. Could not add trip")
 		}
 
 		runningBalance -= tripHours
 	}
-
 	return runningBalance, nil
+}
+
+// Returns PTO usage of trip given
+func CalcultePtoOfTrip(trip *config.Trip,
+	cfg *config.Config,
+	holidays *config.SavedHolidays) (float64, error) {
+
+	tripHours := 0.0
+	//Iterate through days of trip and subtract if it is not
+	// - Weekend
+	// - Off friday
+	// - Holiday
+
+	for d := normalizeDate(trip.StartDate); !d.After(normalizeDate(trip.EndDate)); d = d.AddDate(0, 0, 1) {
+
+		if IsOffFriday(d, cfg) || IsHoliday(d, holidays) || !IsWeekday(d) {
+			continue
+		}
+		tripHours += float64(cfg.DailyHours)
+	}
+
+	return tripHours, nil
 
 }
 
