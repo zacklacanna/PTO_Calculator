@@ -5,8 +5,9 @@ import (
 	"os"
 	"strings"
 
-	tea "charm.land/bubbletea/v2"
 	"pto_calculator/config"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 type screenMode int
@@ -41,9 +42,9 @@ func InitTUI() error {
 
 func newStartupModel() (startupModel, error) {
 	m := startupModel{
-		fields: defaultSetupFields(),
+		fields:  defaultSetupFields(),
 		visible: visibleFieldIndexes(defaultSetupFields()),
-		status: "Press enter to start setup.",
+		status:  "Press enter to start setup.",
 	}
 
 	loaded, err := loadExistingConfig()
