@@ -3,11 +3,13 @@ package tli
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"pto_calculator/config"
+	"pto_calculator/pto"
 )
 
-func renderTripList(trips []config.Trip) string {
+func renderTripList(trips []config.Trip, selected int) string {
 	lines := []string{
 		muted("Saved trips are ordered by start date."),
 		"",
@@ -17,7 +19,14 @@ func renderTripList(trips []config.Trip) string {
 		lines = append(lines, muted("No trips saved yet."))
 	} else {
 		for i, trip := range trips {
-			lines = append(lines, strong(trip.Name))
+			prefix := muted("  ")
+			name := strong(trip.Name)
+			if i == selected {
+				prefix = accent("› ")
+				name = highlight(trip.Name)
+			}
+
+			lines = append(lines, prefix+name)
 			lines = append(lines, fmt.Sprintf("  %s to %s", trip.StartDate.Format("2006-01-02"), trip.EndDate.Format("2006-01-02")))
 			if i != len(trips)-1 {
 				lines = append(lines, "")
@@ -26,8 +35,78 @@ func renderTripList(trips []config.Trip) string {
 	}
 
 	lines = append(lines, "")
+	lines = append(lines, muted("Use up/down or j/k to move through trips."))
 	lines = append(lines, muted("Press esc to return to the main menu."))
 	return box("Trips", lines)
+}
+
+func renderTripDetail(trip config.Trip) string {
+	if err := pto.LoadHolidays(); err != nil {
+		return box("Trip Details", []string{
+			danger("Error: " + err.Error()),
+			"",
+			muted("Press esc to return to the trip list."),
+		})
+	}
+
+	cfg := config.GetSettings()
+	holidays := config.GetHolidays()
+	tripHours, err := pto.CalcultePtoOfTrip(&trip, cfg, holidays)
+	if err != nil {
+		return box("Trip Details", []string{
+			danger("Error: " + err.Error()),
+			"",
+			muted("Press esc to return to the trip list."),
+		})
+	}
+
+	startBalance, err := pto.CalculatePtoOnDate(trip.StartDate)
+	startBalanceText := "Unavailable"
+	endBalanceText := "Unavailable"
+	if err == nil {
+		ptoAfterTrip := startBalance
+		ptoAtTripStart := startBalance + tripHours
+		startBalanceText = fmt.Sprintf("%.1f hours", ptoAtTripStart)
+		endBalanceText = fmt.Sprintf("%.1f hours", ptoAfterTrip)
+	}
+
+	startDate := startOfDay(trip.StartDate)
+	endDate := startOfDay(trip.EndDate)
+	calendarDays := int(endDate.Sub(startDate).Hours()/24) + 1
+	containsOffFriday := tripHasOffFriday(trip, cfg)
+
+	lines := []string{
+		strong(trip.Name),
+		"",
+		fmt.Sprintf("%s %s", muted("Start date:"), trip.StartDate.Format("2006-01-02")),
+		fmt.Sprintf("%s %s", muted("End date:"), trip.EndDate.Format("2006-01-02")),
+		fmt.Sprintf("%s %d", muted("Calendar days:"), calendarDays),
+		fmt.Sprintf("%s %.1f", muted("PTO hours used:"), tripHours),
+		fmt.Sprintf("%s %d", muted("Daily PTO hours:"), cfg.DailyHours),
+		fmt.Sprintf("%s %s", muted("PTO at trip start:"), startBalanceText),
+		fmt.Sprintf("%s %s", muted("PTO after trip:"), endBalanceText),
+		fmt.Sprintf("%s %t", muted("Includes off Friday:"), containsOffFriday),
+		fmt.Sprintf("%s %s", muted("Starts on:"), trip.StartDate.Weekday().String()),
+		fmt.Sprintf("%s %s", muted("Ends on:"), trip.EndDate.Weekday().String()),
+		"",
+		muted("Press esc to return to the trip list."),
+	}
+
+	return box("Trip Details", lines)
+}
+
+func startOfDay(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+}
+
+func tripHasOffFriday(trip config.Trip, cfg *config.Config) bool {
+	for d := startOfDay(trip.StartDate); !d.After(startOfDay(trip.EndDate)); d = d.AddDate(0, 0, 1) {
+		if pto.IsOffFriday(d, cfg) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func renderHolidayList(holidays []config.Holiday) string {

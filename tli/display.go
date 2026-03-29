@@ -17,6 +17,7 @@ type screenMode int
 const (
 	modeWelcome screenMode = iota
 	modeSetupForm
+	modeEditConfig
 	modeMenu
 	modeAddTrip
 	modeListTrips
@@ -42,6 +43,7 @@ type startupModel struct {
 	removeTrip          removeField
 	removeHoliday       removeField
 	tripList            []config.Trip
+	selectedTripIndex   int
 	holidayList         []config.Holiday
 	status              string
 	errText             string
@@ -49,6 +51,8 @@ type startupModel struct {
 	lastAddedTripName   string
 	lastAddedHoliday    string
 	currentPTOText      string
+	ptoDateInput        string
+	editingPTODate      bool
 }
 
 type menuOption struct {
@@ -78,7 +82,8 @@ func newStartupModel() (startupModel, error) {
 		removeTrip:       defaultRemoveTripField(),
 		removeHoliday:    defaultRemoveHolidayField(),
 		status:           "Press enter to start setup.",
-		currentPTOText:   muted("Unavailable"),
+		currentPTOText:   "Unavailable",
+		ptoDateInput:     time.Now().Format("2006-01-02"),
 	}
 
 	loaded, err := loadExistingConfig()
@@ -118,11 +123,15 @@ func (m startupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateWelcome(msg)
 		case modeSetupForm:
 			return m.updateSetupForm(msg)
+		case modeEditConfig:
+			return m.updateEditConfig(msg)
 		case modeMenu:
 			return m.updateMenu(msg)
 		case modeAddTrip:
 			return m.updateAddTripForm(msg)
-		case modeListTrips, modeListHolidays:
+		case modeListTrips:
+			return m.updateTripListScreen(msg)
+		case modeListHolidays:
 			return m.updateListScreen(msg)
 		case modeRemoveTrip:
 			return m.updateRemoveTripForm(msg)
@@ -147,10 +156,24 @@ func (m startupModel) updateWelcome(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m startupModel) updateSetupForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	return m.updateConfigForm(msg, false)
+}
+
+func (m startupModel) updateEditConfig(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	return m.updateConfigForm(msg, true)
+}
+
+func (m startupModel) updateConfigForm(msg tea.KeyPressMsg, editing bool) (tea.Model, tea.Cmd) {
 	m.visible = visibleFieldIndexes(m.fields)
 	current := m.currentVisibleField()
 
 	switch msg.String() {
+	case "esc":
+		if editing {
+			m.mode = modeMenu
+			m.errText = ""
+			return m, nil
+		}
 	case "up", "shift+tab":
 		if current > 0 {
 			m.currentField = m.visible[current-1]
@@ -177,7 +200,11 @@ func (m startupModel) updateSetupForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 			}
 
 			m.configReady = true
-			m.status = fmt.Sprintf("Config saved for %s.", cfg.UserName)
+			if editing {
+				m.status = fmt.Sprintf("Config updated for %s.", cfg.UserName)
+			} else {
+				m.status = fmt.Sprintf("Config saved for %s.", cfg.UserName)
+			}
 			m.refreshMenuSummary()
 			m.mode = modeMenu
 			m.errText = ""
@@ -215,26 +242,26 @@ func (m startupModel) updateSetupForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 }
 
 func (m startupModel) updateMenu(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.editingPTODate {
+		return m.updatePTODateInput(msg)
+	}
+
 	switch msg.String() {
+	case "p":
+		m.editingPTODate = true
+		m.errText = ""
+		return m, nil
 	case "up", "k":
-		if m.currentMenuOption%3 > 0 {
-			m.currentMenuOption--
-		}
+		m.moveMenuUp()
 		return m, nil
 	case "down", "j", "tab":
-		if m.currentMenuOption%3 < 2 && m.currentMenuOption+1 < len(m.menuOptions) {
-			m.currentMenuOption++
-		}
+		m.moveMenuDown()
 		return m, nil
 	case "right", "l":
-		if m.currentMenuOption < 3 && m.currentMenuOption+3 < len(m.menuOptions) {
-			m.currentMenuOption += 3
-		}
+		m.moveMenuRight()
 		return m, nil
 	case "left", "h":
-		if m.currentMenuOption >= 3 {
-			m.currentMenuOption -= 3
-		}
+		m.moveMenuLeft()
 		return m, nil
 	case "enter":
 		switch m.menuOptions[m.currentMenuOption].Action {
@@ -249,6 +276,7 @@ func (m startupModel) updateMenu(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.tripList = trips
+			m.selectedTripIndex = 0
 			m.mode = modeListTrips
 		case "remove-trip":
 			m.removeTrip = defaultRemoveTripField()
@@ -268,9 +296,68 @@ func (m startupModel) updateMenu(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "remove-holiday":
 			m.removeHoliday = defaultRemoveHolidayField()
 			m.mode = modeRemoveHoliday
+		case "edit-config":
+			m.fields = setupFieldsFromConfig(config.GetSettings())
+			m.visible = visibleFieldIndexes(m.fields)
+			m.currentField = 0
+			m.mode = modeEditConfig
 		}
 		m.errText = ""
 		return m, nil
+	}
+
+	return m, nil
+}
+
+func (m startupModel) updateTripListScreen(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.mode = modeMenu
+		m.errText = ""
+		return m, nil
+	case "up", "k":
+		if m.selectedTripIndex > 0 {
+			m.selectedTripIndex--
+		}
+		return m, nil
+	case "down", "j", "tab":
+		if m.selectedTripIndex < len(m.tripList)-1 {
+			m.selectedTripIndex++
+		}
+		return m, nil
+	}
+
+	return m, nil
+}
+
+func (m startupModel) updatePTODateInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.editingPTODate = false
+		m.errText = ""
+		return m, nil
+	case "enter":
+		if _, err := validatePTOQueryDate(m.ptoDateInput); err != nil {
+			m.errText = err.Error()
+			return m, nil
+		}
+		m.editingPTODate = false
+		m.errText = ""
+		m.refreshMenuSummary()
+		return m, nil
+	case "backspace":
+		if len(m.ptoDateInput) > 0 {
+			m.ptoDateInput = m.ptoDateInput[:len(m.ptoDateInput)-1]
+		}
+		m.errText = ""
+		m.refreshMenuSummary()
+		return m, nil
+	}
+
+	if text := msg.Key().Text; text != "" {
+		m.ptoDateInput += text
+		m.errText = ""
+		m.refreshMenuSummary()
 	}
 
 	return m, nil
@@ -280,6 +367,22 @@ func (m startupModel) updateAddTripForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 	switch msg.String() {
 	case "esc":
 		m.mode = modeMenu
+		m.errText = ""
+		return m, nil
+	case "left", "h":
+		adjustTripDateField(m.addFields, m.currentAddField, -1)
+		m.errText = ""
+		return m, nil
+	case "right", "l":
+		adjustTripDateField(m.addFields, m.currentAddField, 1)
+		m.errText = ""
+		return m, nil
+	case "pgup":
+		adjustTripDateField(m.addFields, m.currentAddField, -7)
+		m.errText = ""
+		return m, nil
+	case "pgdown":
+		adjustTripDateField(m.addFields, m.currentAddField, 7)
 		m.errText = ""
 		return m, nil
 	case "up", "shift+tab":
@@ -497,12 +600,22 @@ func (m startupModel) View() tea.View {
 		b.WriteString(centerBlock(m.width, welcomeCopy()))
 	case modeSetupForm:
 		b.WriteString(centerBlock(m.width, m.renderSetupForm()))
+	case modeEditConfig:
+		b.WriteString(centerBlock(m.width, m.renderEditConfigForm()))
 	case modeMenu:
 		b.WriteString(centerBlock(m.width, m.renderMenu()))
 	case modeAddTrip:
 		b.WriteString(centerBlock(m.width, m.renderAddTripForm()))
 	case modeListTrips:
-		b.WriteString(centerBlock(m.width, renderTripList(m.tripList)))
+		if len(m.tripList) == 0 {
+			b.WriteString(centerBlock(m.width, renderTripList(m.tripList, m.selectedTripIndex)))
+		} else {
+			b.WriteString(centerBlock(m.width, joinColumns(
+				renderTripList(m.tripList, m.selectedTripIndex),
+				renderTripDetail(m.tripList[m.selectedTripIndex]),
+				4,
+			)))
+		}
 	case modeRemoveTrip:
 		b.WriteString(centerBlock(m.width, m.renderRemoveTripForm()))
 	case modeListHolidays:
@@ -558,6 +671,47 @@ func (m startupModel) renderSetupForm() string {
 	return box("First-Time Setup", lines)
 }
 
+func (m startupModel) renderEditConfigForm() string {
+	m.visible = visibleFieldIndexes(m.fields)
+	lines := []string{
+		muted("Update your PTO profile settings."),
+		"",
+	}
+
+	for position, index := range m.visible {
+		field := m.fields[index]
+		prefix := muted("  ")
+		label := muted(field.Label)
+		value := field.Value
+
+		if index == m.currentField {
+			prefix = accent("› ")
+			label = highlight(field.Label)
+			value = strong(value + " ")
+		}
+
+		lines = append(lines, fmt.Sprintf("%s%-16s %s", prefix, label, value))
+		if index == m.currentField {
+			lines = append(lines, muted(field.Hint))
+		}
+		if position != len(m.visible)-1 {
+			lines = append(lines, "")
+		}
+	}
+
+	if m.errText != "" {
+		lines = append(lines, "")
+		lines = append(lines, danger("Error: "+m.errText))
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, muted("Type to replace a value. Tab moves forward. Shift+Tab moves back."))
+	lines = append(lines, muted("Press enter on the last field to save."))
+	lines = append(lines, muted("Press esc to return to the main menu without saving."))
+
+	return box("Edit Config", lines)
+}
+
 func (m startupModel) renderMenu() string {
 	name := config.GetSettings().UserName
 	if name == "" {
@@ -568,7 +722,8 @@ func (m startupModel) renderMenu() string {
 		success("Welcome, " + name + "."),
 		muted(m.status),
 		"",
-		strong("Current PTO today: ") + highlight(m.currentPTOText),
+		strong("PTO date: ") + m.renderPTODateField(),
+		strong("PTO on date: ") + highlight(m.currentPTOText),
 	}
 
 	if m.lastAddedTripName != "" {
@@ -625,7 +780,16 @@ func (m startupModel) renderMenu() string {
 	}
 
 	summaryLines = append(summaryLines, "")
+	if m.errText != "" {
+		summaryLines = append(summaryLines, danger("Error: "+m.errText))
+		summaryLines = append(summaryLines, "")
+	}
 	summaryLines = append(summaryLines, muted("Use arrows or h/j/k/l to move. Enter opens the selected screen."))
+	if m.editingPTODate {
+		summaryLines = append(summaryLines, accent("PTO date edit mode is active. Press enter to keep the date or esc to cancel."))
+	} else {
+		summaryLines = append(summaryLines, muted("Press p to edit the PTO date calculator."))
+	}
 	summaryLines = append(summaryLines, muted("Press q to quit."))
 
 	summary := box("Main Menu", summaryLines)
@@ -633,11 +797,18 @@ func (m startupModel) renderMenu() string {
 	holidayPanel := box("Holidays", holidayLines)
 	panels := joinColumns(tripPanel, holidayPanel, 4)
 	summary = centerBlock(blockWidth(panels), summary)
+	configLine := muted("  ") + strong("Edit Config") + "  " + muted("Update your saved PTO settings.")
+	if m.currentMenuOption == 6 {
+		configLine = accent("› ") + highlight("Edit Config") + "  " + muted("Update your saved PTO settings.")
+	}
+	configLine = centerText(blockWidth(panels), configLine)
 
 	return strings.Join([]string{
 		summary,
 		"",
 		panels,
+		"",
+		configLine,
 	}, "\n")
 }
 
@@ -674,9 +845,13 @@ func (m startupModel) renderAddTripForm() string {
 
 	lines = append(lines, "")
 	lines = append(lines, muted("Type to replace a default. Enter saves on the last field."))
+	lines = append(lines, muted("Use left/right on a date field to move by one day."))
+	lines = append(lines, muted("Use page up/page down on a date field to move by one week."))
 	lines = append(lines, muted("Esc returns to the main menu."))
 
-	return box("Add Trip", lines)
+	formBox := box("Add Trip", lines)
+	previewBox := renderTripPreviewBox(m.addFields)
+	return joinColumns(formBox, previewBox, 4)
 }
 
 func (m startupModel) renderAddHolidayForm() string {
@@ -753,13 +928,37 @@ func (m startupModel) currentVisibleField() int {
 }
 
 func (m *startupModel) refreshMenuSummary() {
-	balance, err := pto.CalculatePtoOnDate(time.Now())
+	queryDate, err := validatePTOQueryDate(m.ptoDateInput)
+	if err != nil {
+		m.currentPTOText = "Invalid date"
+		return
+	}
+
+	balance, err := pto.CalculatePtoOnDate(queryDate)
 	if err != nil {
 		m.currentPTOText = "Unavailable"
 		return
 	}
 
 	m.currentPTOText = fmt.Sprintf("%.1f hours", balance)
+}
+
+func validatePTOQueryDate(input string) (time.Time, error) {
+	parsedDate, err := time.Parse("2006-01-02", strings.TrimSpace(input))
+	if err != nil {
+		return time.Time{}, fmt.Errorf("PTO date must use YYYY-MM-DD")
+	}
+
+	location := time.Now().Location()
+	today := time.Now().In(location)
+	today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, location)
+	queryDate := time.Date(parsedDate.Year(), parsedDate.Month(), parsedDate.Day(), 0, 0, 0, 0, location)
+
+	if queryDate.Before(today) {
+		return time.Time{}, fmt.Errorf("PTO date cannot be before today")
+	}
+
+	return queryDate, nil
 }
 
 func loadExistingConfig() (bool, error) {
@@ -792,5 +991,49 @@ func defaultMenuOptions() []menuOption {
 		{Title: "List Holidays", Description: "Review holiday days that should not use PTO.", Action: "list-holidays"},
 		{Title: "Add Holiday", Description: "Add a company holiday or personal no-PTO day.", Action: "add-holiday"},
 		{Title: "Remove Holiday", Description: "Remove an existing holiday entry.", Action: "remove-holiday"},
+		{Title: "Edit Config", Description: "Update your saved PTO settings.", Action: "edit-config"},
+	}
+}
+
+func (m startupModel) renderPTODateField() string {
+	if m.editingPTODate {
+		return strong(m.ptoDateInput + " ")
+	}
+	return highlight(m.ptoDateInput)
+}
+
+func (m *startupModel) moveMenuUp() {
+	switch {
+	case m.currentMenuOption >= 1 && m.currentMenuOption <= 2:
+		m.currentMenuOption--
+	case m.currentMenuOption >= 4 && m.currentMenuOption <= 5:
+		m.currentMenuOption--
+	case m.currentMenuOption == 6:
+		m.currentMenuOption = 2
+	}
+}
+
+func (m *startupModel) moveMenuDown() {
+	switch {
+	case m.currentMenuOption >= 0 && m.currentMenuOption <= 1:
+		m.currentMenuOption++
+	case m.currentMenuOption >= 3 && m.currentMenuOption <= 4:
+		m.currentMenuOption++
+	case m.currentMenuOption == 2 || m.currentMenuOption == 5:
+		m.currentMenuOption = 6
+	}
+}
+
+func (m *startupModel) moveMenuRight() {
+	switch m.currentMenuOption {
+	case 0, 1, 2:
+		m.currentMenuOption += 3
+	}
+}
+
+func (m *startupModel) moveMenuLeft() {
+	switch m.currentMenuOption {
+	case 3, 4, 5:
+		m.currentMenuOption -= 3
 	}
 }

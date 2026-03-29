@@ -3,8 +3,8 @@ package pto
 import (
 	"fmt"
 	"math"
-	"slices"
 	"pto_calculator/config"
+	"slices"
 	"time"
 )
 
@@ -52,12 +52,7 @@ func CalculatePtoOnDate(date time.Time) (float64, error) {
 	// Running balance
 	runningBalance := cfg.InitialBalance
 
-	// Calculate PTO gained from first day of job until now
-	if !targetDate.Before(cfg.FirstDay) {
-		daysSinceStart := int(targetDate.Sub(cfg.FirstDay).Hours() / 24)
-		twoWeekBlocks := daysSinceStart / 14
-		runningBalance += float64(twoWeekBlocks) * cfg.Rate
-	}
+	runningBalance += calculateAccruedPTO(targetDate, cfg)
 
 	// Iterate through each trip and subtract from logic
 	sortedTrips := make([]config.Trip, 0, len(trips.Trips))
@@ -85,8 +80,48 @@ func CalculatePtoOnDate(date time.Time) (float64, error) {
 		runningBalance -= tripHours
 	}
 
-	maxHours := float64(cfg.Max * cfg.DailyHours)
+	maxHours := float64(cfg.Max)
 	return math.Min(maxHours, runningBalance), nil
+}
+
+func calculateAccruedPTO(targetDate time.Time, cfg *config.Config) float64 {
+	firstAccrualDate, ok := nextAccrualDate(cfg.FirstDay, cfg)
+	if !ok || targetDate.Before(firstAccrualDate) {
+		return 0
+	}
+
+	accruals := 0
+	for accrualDate := firstAccrualDate; !accrualDate.After(targetDate); accrualDate = accrualDate.AddDate(0, 0, 14) {
+		accruals++
+	}
+
+	return float64(accruals) * cfg.Rate
+}
+
+func nextAccrualDate(firstDay time.Time, cfg *config.Config) (time.Time, bool) {
+	start := normalizeDate(firstDay)
+	for d := start; !d.After(start.AddDate(0, 0, 14)); d = d.AddDate(0, 0, 1) {
+		if isAccrualFriday(d, cfg) {
+			return d, true
+		}
+	}
+
+	return time.Time{}, false
+}
+
+func isAccrualFriday(date time.Time, cfg *config.Config) bool {
+	if date.Weekday() != time.Friday {
+		return false
+	}
+
+	if !cfg.HasOffFridays {
+		// Without an alternating Friday schedule, default to the first Friday
+		// after start date and then every 14 days from there.
+		return true
+	}
+
+	// Accrual follows the same alternating Friday set selected in config.
+	return IsOffFriday(date, cfg)
 }
 
 // Returns PTO usage of trip given

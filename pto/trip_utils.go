@@ -101,6 +101,19 @@ func hasOverlappingTrip(newTrip *config.Trip, savedTrips *config.SavedTrips) (co
 	return config.Trip{}, true
 }
 
+func FindOverlappingTrip(trip *config.Trip) (config.Trip, bool, error) {
+	if err := LoadTrips(); err != nil {
+		return config.Trip{}, false, err
+	}
+
+	foundTrip, ok := hasOverlappingTrip(trip, config.GetSavedTrips())
+	if !ok {
+		return foundTrip, true, nil
+	}
+
+	return config.Trip{}, false, nil
+}
+
 func RemoveTrip(name string) error {
 	if err := LoadTrips(); err != nil {
 		return err

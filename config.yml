@@ -1,8 +1,8 @@
 initialBalance: 40
-rate: 3.02
-maxdays: 25
+rate: 3.52
+maxdays: 240
 hasOffFridays: true
 whichFridayOff: 1
 user: Zack
-firstDay: 2026-01-05T00:00:00Z
+firstDay: 2026-02-09T00:00:00Z
 dailyHours: 9

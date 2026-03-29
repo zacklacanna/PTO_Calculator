@@ -36,6 +36,38 @@ func defaultSetupFields() []setupField {
 	return fields
 }
 
+func setupFieldsFromConfig(cfg *config.Config) []setupField {
+	fields := defaultSetupFields()
+
+	for i := range fields {
+		switch fields[i].Key {
+		case "user":
+			fields[i].Value = cfg.UserName
+		case "initialBalance":
+			fields[i].Value = fmt.Sprintf("%.2f", cfg.InitialBalance)
+		case "rate":
+			fields[i].Value = fmt.Sprintf("%.2f", cfg.Rate)
+		case "maxdays":
+			fields[i].Value = fmt.Sprintf("%d", cfg.Max)
+		case "dailyHours":
+			fields[i].Value = fmt.Sprintf("%d", cfg.DailyHours)
+		case "firstDay":
+			fields[i].Value = cfg.FirstDay.Format("2006-01-02")
+		case "hasOffFridays":
+			if cfg.HasOffFridays {
+				fields[i].Value = "yes"
+			} else {
+				fields[i].Value = "no"
+			}
+		case "whichFridayOff":
+			fields[i].Value = fmt.Sprintf("%d", cfg.WhichFridayOff)
+		}
+		fields[i].Edited = false
+	}
+
+	return fields
+}
+
 func saveConfig(cfg config.Config) error {
 	*config.GetSettings() = cfg
 	return config.Save(config.ConfigPath, &cfg)
