@@ -100,6 +100,53 @@ func box(title string, lines []string) string {
 	return strings.Join(body, "\n")
 }
 
+func joinColumns(left string, right string, gap int) string {
+	leftLines := strings.Split(left, "\n")
+	rightLines := strings.Split(right, "\n")
+
+	maxLines := max(len(leftLines), len(rightLines))
+	leftWidth := 0
+	for _, line := range leftLines {
+		if visibleWidth(line) > leftWidth {
+			leftWidth = visibleWidth(line)
+		}
+	}
+
+	for len(leftLines) < maxLines {
+		leftLines = append(leftLines, "")
+	}
+	for len(rightLines) < maxLines {
+		rightLines = append(rightLines, "")
+	}
+
+	joined := make([]string, 0, maxLines)
+	spacer := strings.Repeat(" ", gap)
+	for i := 0; i < maxLines; i++ {
+		joined = append(joined, padVisibleRight(leftLines[i], leftWidth)+spacer+rightLines[i])
+	}
+
+	return strings.Join(joined, "\n")
+}
+
+func padVisibleRight(text string, width int) string {
+	padding := width - visibleWidth(text)
+	if padding <= 0 {
+		return text
+	}
+	return text + strings.Repeat(" ", padding)
+}
+
+func blockWidth(text string) int {
+	lines := strings.Split(text, "\n")
+	width := 0
+	for _, line := range lines {
+		if visibleWidth(line) > width {
+			width = visibleWidth(line)
+		}
+	}
+	return width
+}
+
 func visibleWidth(text string) int {
 	width := 0
 	for i := 0; i < len(text); {

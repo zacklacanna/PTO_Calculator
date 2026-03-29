@@ -3,6 +3,8 @@ package pto
 import (
 	"fmt"
 	"pto_calculator/config"
+	"slices"
+	"strings"
 )
 
 func AddNewTrip(tripReq *config.Trip) error {
@@ -121,4 +123,24 @@ func RemoveTrip(name string) error {
 	}
 
 	return nil
+}
+
+func ListTrips() ([]config.Trip, error) {
+	if err := LoadTrips(); err != nil {
+		return nil, err
+	}
+
+	trips := make([]config.Trip, 0, len(config.GetSavedTrips().Trips))
+	for _, trip := range config.GetSavedTrips().Trips {
+		trips = append(trips, trip)
+	}
+
+	slices.SortFunc(trips, func(a config.Trip, b config.Trip) int {
+		if cmp := a.StartDate.Compare(b.StartDate); cmp != 0 {
+			return cmp
+		}
+		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+	})
+
+	return trips, nil
 }

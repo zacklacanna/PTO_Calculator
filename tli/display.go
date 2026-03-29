@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"pto_calculator/config"
+	"pto_calculator/pto"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -17,23 +19,36 @@ const (
 	modeSetupForm
 	modeMenu
 	modeAddTrip
+	modeListTrips
+	modeRemoveTrip
+	modeListHolidays
+	modeAddHoliday
+	modeRemoveHoliday
 )
 
 type startupModel struct {
-	mode              screenMode
-	width             int
-	height            int
-	fields            []setupField
-	currentField      int
-	visible           []int
-	menuOptions       []menuOption
-	currentMenuOption int
-	addFields         []tripField
-	currentAddField   int
-	status            string
-	errText           string
-	configReady       bool
-	lastAddedTripName string
+	mode                screenMode
+	width               int
+	height              int
+	fields              []setupField
+	currentField        int
+	visible             []int
+	menuOptions         []menuOption
+	currentMenuOption   int
+	addFields           []tripField
+	currentAddField     int
+	addHolidayFields    []holidayField
+	currentHolidayField int
+	removeTrip          removeField
+	removeHoliday       removeField
+	tripList            []config.Trip
+	holidayList         []config.Holiday
+	status              string
+	errText             string
+	configReady         bool
+	lastAddedTripName   string
+	lastAddedHoliday    string
+	currentPTOText      string
 }
 
 type menuOption struct {
@@ -55,11 +70,15 @@ func InitTUI() error {
 func newStartupModel() (startupModel, error) {
 	setupFields := defaultSetupFields()
 	m := startupModel{
-		fields:      setupFields,
-		visible:     visibleFieldIndexes(setupFields),
-		menuOptions: defaultMenuOptions(),
-		addFields:   defaultTripFields(),
-		status:      "Press enter to start setup.",
+		fields:           setupFields,
+		visible:          visibleFieldIndexes(setupFields),
+		menuOptions:      defaultMenuOptions(),
+		addFields:        defaultTripFields(),
+		addHolidayFields: defaultHolidayFields(),
+		removeTrip:       defaultRemoveTripField(),
+		removeHoliday:    defaultRemoveHolidayField(),
+		status:           "Press enter to start setup.",
+		currentPTOText:   muted("Unavailable"),
 	}
 
 	loaded, err := loadExistingConfig()
@@ -71,6 +90,7 @@ func newStartupModel() (startupModel, error) {
 		m.mode = modeMenu
 		m.configReady = true
 		m.status = fmt.Sprintf("Config loaded for %s.", config.GetSettings().UserName)
+		m.refreshMenuSummary()
 		return m, nil
 	}
 
@@ -101,7 +121,15 @@ func (m startupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case modeMenu:
 			return m.updateMenu(msg)
 		case modeAddTrip:
-			return m.updateAddForm(msg)
+			return m.updateAddTripForm(msg)
+		case modeListTrips, modeListHolidays:
+			return m.updateListScreen(msg)
+		case modeRemoveTrip:
+			return m.updateRemoveTripForm(msg)
+		case modeAddHoliday:
+			return m.updateAddHolidayForm(msg)
+		case modeRemoveHoliday:
+			return m.updateRemoveHolidayForm(msg)
 		}
 	}
 
@@ -148,9 +176,10 @@ func (m startupModel) updateSetupForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 				return m, nil
 			}
 
-			m.mode = modeMenu
 			m.configReady = true
 			m.status = fmt.Sprintf("Config saved for %s.", cfg.UserName)
+			m.refreshMenuSummary()
+			m.mode = modeMenu
 			m.errText = ""
 			return m, nil
 		}
@@ -176,7 +205,7 @@ func (m startupModel) updateSetupForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 		field.Value += text
 		field.Edited = true
 		m.visible = visibleFieldIndexes(m.fields)
-		if m.currentVisibleField() >= len(m.visible) {
+		if len(m.visible) > 0 && m.currentVisibleField() >= len(m.visible) {
 			m.currentField = m.visible[len(m.visible)-1]
 		}
 		m.errText = ""
@@ -188,35 +217,66 @@ func (m startupModel) updateSetupForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 func (m startupModel) updateMenu(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "up", "k":
-		if m.currentMenuOption > 0 {
+		if m.currentMenuOption%3 > 0 {
 			m.currentMenuOption--
 		}
 		return m, nil
 	case "down", "j", "tab":
-		if m.currentMenuOption < len(m.menuOptions)-1 {
+		if m.currentMenuOption%3 < 2 && m.currentMenuOption+1 < len(m.menuOptions) {
 			m.currentMenuOption++
 		}
 		return m, nil
-	case "a":
-		m.currentMenuOption = 0
-		fallthrough
+	case "right", "l":
+		if m.currentMenuOption < 3 && m.currentMenuOption+3 < len(m.menuOptions) {
+			m.currentMenuOption += 3
+		}
+		return m, nil
+	case "left", "h":
+		if m.currentMenuOption >= 3 {
+			m.currentMenuOption -= 3
+		}
+		return m, nil
 	case "enter":
 		switch m.menuOptions[m.currentMenuOption].Action {
 		case "add-trip":
 			m.mode = modeAddTrip
 			m.addFields = defaultTripFields()
 			m.currentAddField = 0
-			m.errText = ""
-		default:
-			m.status = m.menuOptions[m.currentMenuOption].Title + " is the next screen to build."
+		case "list-trips":
+			trips, err := pto.ListTrips()
+			if err != nil {
+				m.status = err.Error()
+				return m, nil
+			}
+			m.tripList = trips
+			m.mode = modeListTrips
+		case "remove-trip":
+			m.removeTrip = defaultRemoveTripField()
+			m.mode = modeRemoveTrip
+		case "list-holidays":
+			holidays, err := pto.ListHolidays()
+			if err != nil {
+				m.status = err.Error()
+				return m, nil
+			}
+			m.holidayList = holidays
+			m.mode = modeListHolidays
+		case "add-holiday":
+			m.addHolidayFields = defaultHolidayFields()
+			m.currentHolidayField = 0
+			m.mode = modeAddHoliday
+		case "remove-holiday":
+			m.removeHoliday = defaultRemoveHolidayField()
+			m.mode = modeRemoveHoliday
 		}
+		m.errText = ""
 		return m, nil
 	}
 
 	return m, nil
 }
 
-func (m startupModel) updateAddForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m startupModel) updateAddTripForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.mode = modeMenu
@@ -242,12 +302,13 @@ func (m startupModel) updateAddForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			m.mode = modeMenu
 			m.lastAddedTripName = trip.Name
 			m.status = fmt.Sprintf("Trip %s saved from %s to %s.", trip.Name, trip.StartDate.Format("2006-01-02"), trip.EndDate.Format("2006-01-02"))
-			m.errText = ""
 			m.addFields = defaultTripFields()
 			m.currentAddField = 0
+			m.errText = ""
+			m.refreshMenuSummary()
+			m.mode = modeMenu
 			return m, nil
 		}
 
@@ -277,6 +338,153 @@ func (m startupModel) updateAddForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m startupModel) updateAddHolidayForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.mode = modeMenu
+		m.errText = ""
+		return m, nil
+	case "up", "shift+tab":
+		if m.currentHolidayField > 0 {
+			m.currentHolidayField--
+		}
+		m.errText = ""
+		return m, nil
+	case "down", "tab":
+		if m.currentHolidayField < len(m.addHolidayFields)-1 {
+			m.currentHolidayField++
+		}
+		m.errText = ""
+		return m, nil
+	case "enter":
+		if m.currentHolidayField == len(m.addHolidayFields)-1 {
+			holiday, err := saveHoliday(m.addHolidayFields)
+			if err != nil {
+				m.errText = err.Error()
+				return m, nil
+			}
+
+			m.lastAddedHoliday = holiday.Name
+			m.status = fmt.Sprintf("Holiday %s saved on %s.", holiday.Name, holiday.Date.Format("2006-01-02"))
+			m.addHolidayFields = defaultHolidayFields()
+			m.currentHolidayField = 0
+			m.errText = ""
+			m.refreshMenuSummary()
+			m.mode = modeMenu
+			return m, nil
+		}
+
+		m.currentHolidayField++
+		m.errText = ""
+		return m, nil
+	case "backspace":
+		field := &m.addHolidayFields[m.currentHolidayField]
+		if len(field.Value) > 0 {
+			field.Value = field.Value[:len(field.Value)-1]
+			field.Edited = true
+		}
+		m.errText = ""
+		return m, nil
+	}
+
+	if text := msg.Key().Text; text != "" {
+		field := &m.addHolidayFields[m.currentHolidayField]
+		if !field.Edited {
+			field.Value = ""
+		}
+		field.Value += text
+		field.Edited = true
+		m.errText = ""
+	}
+
+	return m, nil
+}
+
+func (m startupModel) updateRemoveTripForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.mode = modeMenu
+		m.errText = ""
+		return m, nil
+	case "enter":
+		if err := removeTripByName(m.removeTrip); err != nil {
+			m.errText = err.Error()
+			return m, nil
+		}
+		m.status = fmt.Sprintf("Trip %s removed.", strings.TrimSpace(m.removeTrip.Value))
+		m.removeTrip = defaultRemoveTripField()
+		m.errText = ""
+		m.refreshMenuSummary()
+		m.mode = modeMenu
+		return m, nil
+	case "backspace":
+		if len(m.removeTrip.Value) > 0 {
+			m.removeTrip.Value = m.removeTrip.Value[:len(m.removeTrip.Value)-1]
+			m.removeTrip.Edited = true
+		}
+		m.errText = ""
+		return m, nil
+	}
+
+	if text := msg.Key().Text; text != "" {
+		if !m.removeTrip.Edited {
+			m.removeTrip.Value = ""
+		}
+		m.removeTrip.Value += text
+		m.removeTrip.Edited = true
+		m.errText = ""
+	}
+
+	return m, nil
+}
+
+func (m startupModel) updateRemoveHolidayForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.mode = modeMenu
+		m.errText = ""
+		return m, nil
+	case "enter":
+		if err := removeHolidayByDate(m.removeHoliday); err != nil {
+			m.errText = err.Error()
+			return m, nil
+		}
+		m.status = fmt.Sprintf("Holiday on %s removed.", strings.TrimSpace(m.removeHoliday.Value))
+		m.removeHoliday = defaultRemoveHolidayField()
+		m.errText = ""
+		m.refreshMenuSummary()
+		m.mode = modeMenu
+		return m, nil
+	case "backspace":
+		if len(m.removeHoliday.Value) > 0 {
+			m.removeHoliday.Value = m.removeHoliday.Value[:len(m.removeHoliday.Value)-1]
+			m.removeHoliday.Edited = true
+		}
+		m.errText = ""
+		return m, nil
+	}
+
+	if text := msg.Key().Text != ""; text {
+		keyText := msg.Key().Text
+		if !m.removeHoliday.Edited {
+			m.removeHoliday.Value = ""
+		}
+		m.removeHoliday.Value += keyText
+		m.removeHoliday.Edited = true
+		m.errText = ""
+	}
+
+	return m, nil
+}
+
+func (m startupModel) updateListScreen(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "esc" {
+		m.mode = modeMenu
+		m.errText = ""
+	}
+	return m, nil
+}
+
 func (m startupModel) View() tea.View {
 	var b strings.Builder
 
@@ -292,7 +500,17 @@ func (m startupModel) View() tea.View {
 	case modeMenu:
 		b.WriteString(centerBlock(m.width, m.renderMenu()))
 	case modeAddTrip:
-		b.WriteString(centerBlock(m.width, m.renderAddForm()))
+		b.WriteString(centerBlock(m.width, m.renderAddTripForm()))
+	case modeListTrips:
+		b.WriteString(centerBlock(m.width, renderTripList(m.tripList)))
+	case modeRemoveTrip:
+		b.WriteString(centerBlock(m.width, m.renderRemoveTripForm()))
+	case modeListHolidays:
+		b.WriteString(centerBlock(m.width, renderHolidayList(m.holidayList)))
+	case modeAddHoliday:
+		b.WriteString(centerBlock(m.width, m.renderAddHolidayForm()))
+	case modeRemoveHoliday:
+		b.WriteString(centerBlock(m.width, m.renderRemoveHolidayForm()))
 	}
 
 	view := tea.NewView(b.String())
@@ -346,42 +564,84 @@ func (m startupModel) renderMenu() string {
 		name = "there"
 	}
 
-	lines := []string{
+	summaryLines := []string{
 		success("Welcome, " + name + "."),
 		muted(m.status),
 		"",
+		strong("Current PTO today: ") + highlight(m.currentPTOText),
 	}
 
-	for i, option := range m.menuOptions {
+	if m.lastAddedTripName != "" {
+		summaryLines = append(summaryLines, "")
+		summaryLines = append(summaryLines, success("Last added trip: "+m.lastAddedTripName))
+	}
+	if m.lastAddedHoliday != "" {
+		summaryLines = append(summaryLines, success("Last added holiday: "+m.lastAddedHoliday))
+	}
+
+	tripLines := []string{
+		muted("Trip actions"),
+		"",
+	}
+	holidayLines := []string{
+		muted("Holiday actions"),
+		"",
+	}
+
+	for i, option := range m.menuOptions[:3] {
+		absoluteIndex := i
 		prefix := muted("  ")
 		title := strong(option.Title)
 		description := muted(option.Description)
 
-		if i == m.currentMenuOption {
+		if absoluteIndex == m.currentMenuOption {
 			prefix = accent("› ")
 			title = highlight(option.Title)
 		}
 
-		lines = append(lines, fmt.Sprintf("%s%s", prefix, title))
-		lines = append(lines, fmt.Sprintf("  %s", description))
-		if i != len(m.menuOptions)-1 {
-			lines = append(lines, "")
+		tripLines = append(tripLines, fmt.Sprintf("%s%s", prefix, title))
+		tripLines = append(tripLines, fmt.Sprintf("  %s", description))
+		if i != len(m.menuOptions[:3])-1 {
+			tripLines = append(tripLines, "")
 		}
 	}
 
-	lines = append(lines, "")
-	lines = append(lines, muted("Use up/down or j/k to choose. Enter opens the selected screen."))
-	lines = append(lines, muted("Press q to quit."))
+	for i, option := range m.menuOptions[3:] {
+		absoluteIndex := i + 3
+		prefix := muted("  ")
+		title := strong(option.Title)
+		description := muted(option.Description)
 
-	if m.lastAddedTripName != "" {
-		lines = append(lines, "")
-		lines = append(lines, success("Last added trip: "+m.lastAddedTripName))
+		if absoluteIndex == m.currentMenuOption {
+			prefix = accent("› ")
+			title = highlight(option.Title)
+		}
+
+		holidayLines = append(holidayLines, fmt.Sprintf("%s%s", prefix, title))
+		holidayLines = append(holidayLines, fmt.Sprintf("  %s", description))
+		if i != len(m.menuOptions[3:])-1 {
+			holidayLines = append(holidayLines, "")
+		}
 	}
 
-	return box("Main Menu", lines)
+	summaryLines = append(summaryLines, "")
+	summaryLines = append(summaryLines, muted("Use arrows or h/j/k/l to move. Enter opens the selected screen."))
+	summaryLines = append(summaryLines, muted("Press q to quit."))
+
+	summary := box("Main Menu", summaryLines)
+	tripPanel := box("Trips", tripLines)
+	holidayPanel := box("Holidays", holidayLines)
+	panels := joinColumns(tripPanel, holidayPanel, 4)
+	summary = centerBlock(blockWidth(panels), summary)
+
+	return strings.Join([]string{
+		summary,
+		"",
+		panels,
+	}, "\n")
 }
 
-func (m startupModel) renderAddForm() string {
+func (m startupModel) renderAddTripForm() string {
 	lines := []string{
 		muted("Create a new trip and run it through your PTO validation logic."),
 		"",
@@ -419,6 +679,66 @@ func (m startupModel) renderAddForm() string {
 	return box("Add Trip", lines)
 }
 
+func (m startupModel) renderAddHolidayForm() string {
+	lines := []string{
+		muted("Add a holiday that should not consume PTO."),
+		"",
+	}
+
+	for i, field := range m.addHolidayFields {
+		prefix := muted("  ")
+		label := muted(field.Label)
+		value := field.Value
+
+		if i == m.currentHolidayField {
+			prefix = accent("› ")
+			label = highlight(field.Label)
+			value = strong(value + " ")
+		}
+
+		lines = append(lines, fmt.Sprintf("%s%-12s %s", prefix, label, value))
+		if i == m.currentHolidayField {
+			lines = append(lines, muted(field.Hint))
+		}
+		if i != len(m.addHolidayFields)-1 {
+			lines = append(lines, "")
+		}
+	}
+
+	if m.errText != "" {
+		lines = append(lines, "")
+		lines = append(lines, danger("Error: "+m.errText))
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, muted("Type to replace a default. Enter saves on the last field."))
+	lines = append(lines, muted("Esc returns to the main menu."))
+
+	return box("Add Holiday", lines)
+}
+
+func (m startupModel) renderRemoveTripForm() string {
+	return renderSingleFieldForm(
+		"Remove Trip",
+		"Remove a saved trip by name.",
+		m.removeTrip,
+		true,
+		m.errText,
+		"Press enter to remove the trip. Esc returns to the main menu.",
+	)
+}
+
+func (m startupModel) renderRemoveHolidayForm() string {
+	return renderSingleFieldForm(
+		"Remove Holiday",
+		"Remove a saved holiday by date.",
+		m.removeHoliday,
+		true,
+		m.errText,
+		"Press enter to remove the holiday. Esc returns to the main menu.",
+	)
+}
+
 func (m startupModel) currentVisibleField() int {
 	for i, index := range m.visible {
 		if index == m.currentField {
@@ -430,6 +750,16 @@ func (m startupModel) currentVisibleField() int {
 	}
 	m.currentField = m.visible[0]
 	return 0
+}
+
+func (m *startupModel) refreshMenuSummary() {
+	balance, err := pto.CalculatePtoOnDate(time.Now())
+	if err != nil {
+		m.currentPTOText = "Unavailable"
+		return
+	}
+
+	m.currentPTOText = fmt.Sprintf("%.1f hours", balance)
 }
 
 func loadExistingConfig() (bool, error) {

@@ -3,6 +3,7 @@ package pto
 import (
 	"fmt"
 	"math"
+	"slices"
 	"pto_calculator/config"
 	"time"
 )
@@ -15,6 +16,27 @@ import (
 // Add logic to calculate if PTO gained during the trip
 // This function does not factor in holidays, off fridays, just raw PTO & found trips
 func CalculatePtoAtDate(tripReq *config.Trip) (float64, error) {
+	runningBalance, err := CalculatePtoOnDate(tripReq.StartDate)
+	if err != nil {
+		return -1, err
+	}
+
+	cfg := config.GetSettings()
+	holidays := config.GetHolidays()
+
+	newTripCheck, err := CalcultePtoOfTrip(tripReq, cfg, holidays)
+	if err != nil {
+		return -1, err
+	}
+
+	if runningBalance-newTripCheck < 0 {
+		return -1, fmt.Errorf("Could not add new trip, PTO would be exceeded")
+	}
+
+	return runningBalance, nil
+}
+
+func CalculatePtoOnDate(date time.Time) (float64, error) {
 	if err := LoadTrips(); err != nil {
 		return -1, err
 	}
@@ -25,21 +47,29 @@ func CalculatePtoAtDate(tripReq *config.Trip) (float64, error) {
 	cfg := config.GetSettings()
 	trips := config.GetSavedTrips()
 	holidays := config.GetHolidays()
-	startDate := normalizeDate(tripReq.StartDate)
+	targetDate := normalizeDate(date)
 
 	// Running balance
 	runningBalance := cfg.InitialBalance
 
 	// Calculate PTO gained from first day of job until now
-	if !tripReq.StartDate.Before(cfg.FirstDay) {
-		daysSinceStart := int(tripReq.StartDate.Sub(cfg.FirstDay).Hours() / 24)
+	if !targetDate.Before(cfg.FirstDay) {
+		daysSinceStart := int(targetDate.Sub(cfg.FirstDay).Hours() / 24)
 		twoWeekBlocks := daysSinceStart / 14
 		runningBalance += float64(twoWeekBlocks) * cfg.Rate
 	}
 
 	// Iterate through each trip and subtract from logic
+	sortedTrips := make([]config.Trip, 0, len(trips.Trips))
 	for _, trip := range trips.Trips {
-		if normalizeDate(trip.StartDate).After(startDate) {
+		sortedTrips = append(sortedTrips, trip)
+	}
+	slices.SortFunc(sortedTrips, func(a config.Trip, b config.Trip) int {
+		return a.StartDate.Compare(b.StartDate)
+	})
+
+	for _, trip := range sortedTrips {
+		if normalizeDate(trip.StartDate).After(targetDate) {
 			continue
 		}
 
@@ -55,17 +85,8 @@ func CalculatePtoAtDate(tripReq *config.Trip) (float64, error) {
 		runningBalance -= tripHours
 	}
 
-	newTripCheck, err := CalcultePtoOfTrip(tripReq, cfg, holidays)
-	if err != nil {
-		return -1, err
-	}
-
-	if runningBalance-newTripCheck < 0 {
-		return -1, fmt.Errorf("Could not add new trip, PTO would be exceeded")
-	}
-
-	// Ensure we dont surpass the maximum threshold
-	return math.Max(float64(cfg.Max), runningBalance), nil
+	maxHours := float64(cfg.Max * cfg.DailyHours)
+	return math.Min(maxHours, runningBalance), nil
 }
 
 // Returns PTO usage of trip given
