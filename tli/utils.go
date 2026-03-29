@@ -78,6 +78,12 @@ func strong(text string) string {
 }
 
 func box(title string, lines []string) string {
+	return fitBox(title, lines, 0)
+}
+
+func fitBox(title string, lines []string, maxWidth int) string {
+	lines = wrapLines(lines, maxWidth)
+
 	width := visibleWidth(title) + 4
 	for _, line := range lines {
 		if visibleWidth(line) > width-4 {
@@ -128,6 +134,24 @@ func joinColumns(left string, right string, gap int) string {
 	return strings.Join(joined, "\n")
 }
 
+func joinResponsive(left string, right string, gap int, availableWidth int) string {
+	if availableWidth > 0 && blockWidth(left)+gap+blockWidth(right) > availableWidth {
+		return stackBlocks(left, right)
+	}
+	return joinColumns(left, right, gap)
+}
+
+func stackBlocks(blocks ...string) string {
+	parts := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		if strings.TrimSpace(block) == "" {
+			continue
+		}
+		parts = append(parts, block)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
 func padVisibleRight(text string, width int) string {
 	padding := width - visibleWidth(text)
 	if padding <= 0 {
@@ -145,6 +169,105 @@ func blockWidth(text string) int {
 		}
 	}
 	return width
+}
+
+func contentWidth(totalWidth int) int {
+	if totalWidth <= 0 {
+		return 0
+	}
+
+	width := totalWidth - 4
+	if width < 28 {
+		width = 28
+	}
+	return width
+}
+
+func columnWidth(totalWidth int, gap int) int {
+	width := contentWidth(totalWidth)
+	if width <= 0 {
+		return 0
+	}
+
+	col := (width - gap) / 2
+	if col < 28 {
+		return 0
+	}
+	return col
+}
+
+func wrapLines(lines []string, maxWidth int) []string {
+	if maxWidth <= 0 {
+		return lines
+	}
+
+	innerWidth := maxWidth - 4
+	if innerWidth < 8 {
+		innerWidth = 8
+	}
+
+	wrapped := make([]string, 0, len(lines))
+	for _, line := range lines {
+		wrapped = append(wrapped, wrapLine(line, innerWidth)...)
+	}
+
+	return wrapped
+}
+
+func wrapLine(line string, width int) []string {
+	if width <= 0 || visibleWidth(line) <= width || strings.TrimSpace(line) == "" {
+		return []string{line}
+	}
+
+	indentWidth := 0
+	for indentWidth < len(line) && line[indentWidth] == ' ' {
+		indentWidth++
+	}
+	indent := line[:indentWidth]
+	indentVisible := visibleWidth(indent)
+	continuation := indent
+	if indentVisible+2 < width {
+		continuation += "  "
+	}
+
+	words := strings.Fields(line[indentWidth:])
+	if len(words) == 0 {
+		return []string{line}
+	}
+
+	lines := make([]string, 0, 2)
+	current := indent
+	currentWidth := indentVisible
+
+	for _, word := range words {
+		wordWidth := visibleWidth(word)
+		additional := wordWidth
+		if strings.TrimSpace(current) != "" {
+			additional++
+		}
+
+		if currentWidth+additional > width && strings.TrimSpace(current) != "" {
+			lines = append(lines, current)
+			current = continuation + word
+			currentWidth = visibleWidth(continuation) + wordWidth
+			continue
+		}
+
+		if strings.TrimSpace(current) == "" {
+			current = indent + word
+			currentWidth = indentVisible + wordWidth
+			continue
+		}
+
+		current += " " + word
+		currentWidth += 1 + wordWidth
+	}
+
+	if current != "" {
+		lines = append(lines, current)
+	}
+
+	return lines
 }
 
 func visibleWidth(text string) int {

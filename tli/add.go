@@ -197,17 +197,17 @@ func buildTripPreview(fields []tripField) (*tripPreview, error) {
 	return preview, nil
 }
 
-func renderTripPreviewBox(fields []tripField) string {
+func renderTripPreviewBox(fields []tripField, width int) string {
 	preview, err := buildTripPreview(fields)
 	if err != nil {
-		return box("Trip Preview", []string{
+		return fitBox("Trip Preview", []string{
 			muted("Live trip estimate"),
 			"",
 			danger("Preview unavailable: " + err.Error()),
 			"",
 			muted("Tip: use left/right to nudge the selected date by one day."),
 			muted("Use page up/page down to move a week at a time."),
-		})
+		}, width)
 	}
 
 	statusLine := success(preview.ValidationMessage)
@@ -215,7 +215,7 @@ func renderTripPreviewBox(fields []tripField) string {
 		statusLine = danger(preview.ValidationMessage)
 	}
 
-	return box("Trip Preview", []string{
+	return fitBox("Trip Preview", []string{
 		muted("Live trip estimate"),
 		"",
 		fmt.Sprintf("%s %s", muted("Start:"), preview.Trip.StartDate.Format("2006-01-02")+" ("+preview.StartWeekday+")"),
@@ -235,7 +235,7 @@ func renderTripPreviewBox(fields []tripField) string {
 		"",
 		muted("Tip: use left/right to nudge the selected date by one day."),
 		muted("Use page up/page down to move a week at a time."),
-	})
+	}, width)
 }
 
 func buildHoliday(fields []holidayField) (config.Holiday, error) {

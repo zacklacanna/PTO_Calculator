@@ -608,18 +608,17 @@ func (m startupModel) View() tea.View {
 		b.WriteString(centerBlock(m.width, m.renderAddTripForm()))
 	case modeListTrips:
 		if len(m.tripList) == 0 {
-			b.WriteString(centerBlock(m.width, renderTripList(m.tripList, m.selectedTripIndex)))
+			b.WriteString(centerBlock(m.width, renderTripList(m.tripList, m.selectedTripIndex, contentWidth(m.width))))
 		} else {
-			b.WriteString(centerBlock(m.width, joinColumns(
-				renderTripList(m.tripList, m.selectedTripIndex),
-				renderTripDetail(m.tripList[m.selectedTripIndex]),
-				4,
-			)))
+			colWidth := columnWidth(m.width, 4)
+			left := renderTripList(m.tripList, m.selectedTripIndex, colWidth)
+			right := renderTripDetail(m.tripList[m.selectedTripIndex], colWidth)
+			b.WriteString(centerBlock(m.width, joinResponsive(left, right, 4, contentWidth(m.width))))
 		}
 	case modeRemoveTrip:
 		b.WriteString(centerBlock(m.width, m.renderRemoveTripForm()))
 	case modeListHolidays:
-		b.WriteString(centerBlock(m.width, renderHolidayList(m.holidayList)))
+		b.WriteString(centerBlock(m.width, renderHolidayList(m.holidayList, contentWidth(m.width))))
 	case modeAddHoliday:
 		b.WriteString(centerBlock(m.width, m.renderAddHolidayForm()))
 	case modeRemoveHoliday:
@@ -668,7 +667,7 @@ func (m startupModel) renderSetupForm() string {
 	lines = append(lines, muted("Type to replace a default. Tab moves forward. Shift+Tab moves back."))
 	lines = append(lines, muted("Press enter on the last field to save."))
 
-	return box("First-Time Setup", lines)
+	return fitBox("First-Time Setup", lines, contentWidth(m.width))
 }
 
 func (m startupModel) renderEditConfigForm() string {
@@ -709,7 +708,7 @@ func (m startupModel) renderEditConfigForm() string {
 	lines = append(lines, muted("Press enter on the last field to save."))
 	lines = append(lines, muted("Press esc to return to the main menu without saving."))
 
-	return box("Edit Config", lines)
+	return fitBox("Edit Config", lines, contentWidth(m.width))
 }
 
 func (m startupModel) renderMenu() string {
@@ -792,10 +791,12 @@ func (m startupModel) renderMenu() string {
 	}
 	summaryLines = append(summaryLines, muted("Press q to quit."))
 
-	summary := box("Main Menu", summaryLines)
-	tripPanel := box("Trips", tripLines)
-	holidayPanel := box("Holidays", holidayLines)
-	panels := joinColumns(tripPanel, holidayPanel, 4)
+	colWidth := columnWidth(m.width, 4)
+	summaryWidth := contentWidth(m.width)
+	summary := fitBox("Main Menu", summaryLines, summaryWidth)
+	tripPanel := fitBox("Trips", tripLines, colWidth)
+	holidayPanel := fitBox("Holidays", holidayLines, colWidth)
+	panels := joinResponsive(tripPanel, holidayPanel, 4, contentWidth(m.width))
 	summary = centerBlock(blockWidth(panels), summary)
 	configLine := muted("  ") + strong("Edit Config") + "  " + muted("Update your saved PTO settings.")
 	if m.currentMenuOption == 6 {
@@ -849,9 +850,10 @@ func (m startupModel) renderAddTripForm() string {
 	lines = append(lines, muted("Use page up/page down on a date field to move by one week."))
 	lines = append(lines, muted("Esc returns to the main menu."))
 
-	formBox := box("Add Trip", lines)
-	previewBox := renderTripPreviewBox(m.addFields)
-	return joinColumns(formBox, previewBox, 4)
+	colWidth := columnWidth(m.width, 4)
+	formBox := fitBox("Add Trip", lines, colWidth)
+	previewBox := renderTripPreviewBox(m.addFields, colWidth)
+	return joinResponsive(formBox, previewBox, 4, contentWidth(m.width))
 }
 
 func (m startupModel) renderAddHolidayForm() string {
@@ -889,7 +891,7 @@ func (m startupModel) renderAddHolidayForm() string {
 	lines = append(lines, muted("Type to replace a default. Enter saves on the last field."))
 	lines = append(lines, muted("Esc returns to the main menu."))
 
-	return box("Add Holiday", lines)
+	return fitBox("Add Holiday", lines, contentWidth(m.width))
 }
 
 func (m startupModel) renderRemoveTripForm() string {
@@ -900,6 +902,7 @@ func (m startupModel) renderRemoveTripForm() string {
 		true,
 		m.errText,
 		"Press enter to remove the trip. Esc returns to the main menu.",
+		contentWidth(m.width),
 	)
 }
 
@@ -911,6 +914,7 @@ func (m startupModel) renderRemoveHolidayForm() string {
 		true,
 		m.errText,
 		"Press enter to remove the holiday. Esc returns to the main menu.",
+		contentWidth(m.width),
 	)
 }
 

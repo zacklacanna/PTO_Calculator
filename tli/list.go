@@ -9,7 +9,7 @@ import (
 	"pto_calculator/pto"
 )
 
-func renderTripList(trips []config.Trip, selected int) string {
+func renderTripList(trips []config.Trip, selected int, width int) string {
 	lines := []string{
 		muted("Saved trips are ordered by start date."),
 		"",
@@ -37,27 +37,27 @@ func renderTripList(trips []config.Trip, selected int) string {
 	lines = append(lines, "")
 	lines = append(lines, muted("Use up/down or j/k to move through trips."))
 	lines = append(lines, muted("Press esc to return to the main menu."))
-	return box("Trips", lines)
+	return fitBox("Trips", lines, width)
 }
 
-func renderTripDetail(trip config.Trip) string {
+func renderTripDetail(trip config.Trip, width int) string {
 	if err := pto.LoadHolidays(); err != nil {
-		return box("Trip Details", []string{
+		return fitBox("Trip Details", []string{
 			danger("Error: " + err.Error()),
 			"",
 			muted("Press esc to return to the trip list."),
-		})
+		}, width)
 	}
 
 	cfg := config.GetSettings()
 	holidays := config.GetHolidays()
 	tripHours, err := pto.CalcultePtoOfTrip(&trip, cfg, holidays)
 	if err != nil {
-		return box("Trip Details", []string{
+		return fitBox("Trip Details", []string{
 			danger("Error: " + err.Error()),
 			"",
 			muted("Press esc to return to the trip list."),
-		})
+		}, width)
 	}
 
 	startBalance, err := pto.CalculatePtoOnDate(trip.StartDate)
@@ -92,7 +92,7 @@ func renderTripDetail(trip config.Trip) string {
 		muted("Press esc to return to the trip list."),
 	}
 
-	return box("Trip Details", lines)
+	return fitBox("Trip Details", lines, width)
 }
 
 func startOfDay(t time.Time) time.Time {
@@ -109,7 +109,7 @@ func tripHasOffFriday(trip config.Trip, cfg *config.Config) bool {
 	return false
 }
 
-func renderHolidayList(holidays []config.Holiday) string {
+func renderHolidayList(holidays []config.Holiday, width int) string {
 	lines := []string{
 		muted("Holiday days do not consume PTO."),
 		"",
@@ -129,10 +129,10 @@ func renderHolidayList(holidays []config.Holiday) string {
 
 	lines = append(lines, "")
 	lines = append(lines, muted("Press esc to return to the main menu."))
-	return box("Holidays", lines)
+	return fitBox("Holidays", lines, width)
 }
 
-func renderSingleFieldForm(title string, intro string, field removeField, active bool, errText string, footer string) string {
+func renderSingleFieldForm(title string, intro string, field removeField, active bool, errText string, footer string, width int) string {
 	prefix := muted("  ")
 	label := muted(field.Label)
 	value := field.Value
@@ -157,5 +157,5 @@ func renderSingleFieldForm(title string, intro string, field removeField, active
 	lines = append(lines, "")
 	lines = append(lines, muted(footer))
 
-	return box(title, lines)
+	return fitBox(title, lines, width)
 }
