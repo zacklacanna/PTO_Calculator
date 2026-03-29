@@ -6,10 +6,16 @@ import (
 )
 
 func AddNewTrip(tripReq *config.Trip) error {
+	if err := LoadTrips(); err != nil {
+		return err
+	}
+	if err := LoadHolidays(); err != nil {
+		return err
+	}
 
 	//pull current config settings
-	var config = config.GetSettings()
-	if config.InitialBalance < 0 {
+	cfg := config.GetSettings()
+	if cfg.InitialBalance < 0 {
 		// Tea flow for setting default settings
 		return fmt.Errorf("Invalid config files")
 	}
@@ -18,7 +24,7 @@ func AddNewTrip(tripReq *config.Trip) error {
 	// name doesnt already exist
 	// no overlapping dates with another saved trip
 
-	_, err := checkValidNewTrip(tripReq)
+	validTrip, err := checkValidNewTrip(tripReq)
 	if err != nil {
 		return err
 	}
@@ -33,6 +39,16 @@ func AddNewTrip(tripReq *config.Trip) error {
 
 	// if can approve return trip and save to saved trips
 	// false return error
+
+	savedTrips := config.GetSavedTrips()
+	if savedTrips.Trips == nil {
+		savedTrips.Trips = map[string]config.Trip{}
+	}
+	savedTrips.Trips[validTrip.Name] = validTrip
+
+	if err := config.Save(config.TripPath, savedTrips); err != nil {
+		return err
+	}
 
 	return nil
 
@@ -84,6 +100,9 @@ func hasOverlappingTrip(newTrip *config.Trip, savedTrips *config.SavedTrips) (co
 }
 
 func RemoveTrip(name string) error {
+	if err := LoadTrips(); err != nil {
+		return err
+	}
 
 	trips := config.GetSavedTrips().Trips
 
@@ -97,7 +116,7 @@ func RemoveTrip(name string) error {
 
 	delete(trips, name)
 
-	if err := config.Save(config.TripPath, trips); err != nil {
+	if err := config.Save(config.TripPath, config.GetSavedTrips()); err != nil {
 		return err
 	}
 

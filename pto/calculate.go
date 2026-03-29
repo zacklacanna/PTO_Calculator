@@ -2,6 +2,7 @@ package pto
 
 import (
 	"fmt"
+	"math"
 	"pto_calculator/config"
 	"time"
 )
@@ -14,23 +15,33 @@ import (
 // Add logic to calculate if PTO gained during the trip
 // This function does not factor in holidays, off fridays, just raw PTO & found trips
 func CalculatePtoAtDate(tripReq *config.Trip) (float64, error) {
+	if err := LoadTrips(); err != nil {
+		return -1, err
+	}
+	if err := LoadHolidays(); err != nil {
+		return -1, err
+	}
 
 	cfg := config.GetSettings()
 	trips := config.GetSavedTrips()
 	holidays := config.GetHolidays()
+	startDate := normalizeDate(tripReq.StartDate)
 
 	// Running balance
 	runningBalance := cfg.InitialBalance
 
 	// Calculate PTO gained from first day of job until now
-	if !startDate.Before(cfg.FirstDay) {
-		daysSinceStart := int(startDate.Sub(cfg.FirstDay).Hours() / 24)
+	if !tripReq.StartDate.Before(cfg.FirstDay) {
+		daysSinceStart := int(tripReq.StartDate.Sub(cfg.FirstDay).Hours() / 24)
 		twoWeekBlocks := daysSinceStart / 14
 		runningBalance += float64(twoWeekBlocks) * cfg.Rate
 	}
 
 	// Iterate through each trip and subtract from logic
 	for _, trip := range trips.Trips {
+		if normalizeDate(trip.StartDate).After(startDate) {
+			continue
+		}
 
 		tripHours, err := CalcultePtoOfTrip(&trip, cfg, holidays)
 		if err != nil {
@@ -38,12 +49,23 @@ func CalculatePtoAtDate(tripReq *config.Trip) (float64, error) {
 		}
 
 		if runningBalance-tripHours < 0 {
-			return -1, fmt.Errorf("Trip %s would exceed the PTO max. Could not add trip")
+			return -1, fmt.Errorf("trip %s would exceed the PTO balance", trip.Name)
 		}
 
 		runningBalance -= tripHours
 	}
-	return runningBalance, nil
+
+	newTripCheck, err := CalcultePtoOfTrip(tripReq, cfg, holidays)
+	if err != nil {
+		return -1, err
+	}
+
+	if runningBalance-newTripCheck < 0 {
+		return -1, fmt.Errorf("Could not add new trip, PTO would be exceeded")
+	}
+
+	// Ensure we dont surpass the maximum threshold
+	return math.Max(float64(cfg.Max), runningBalance), nil
 }
 
 // Returns PTO usage of trip given
@@ -83,7 +105,7 @@ func IsHoliday(date time.Time, holidays *config.SavedHolidays) bool {
 func IsWeekday(date time.Time) bool {
 
 	weekday := date.Weekday()
-	return weekday != time.Friday && weekday != time.Saturday && weekday != time.Sunday
+	return weekday != time.Saturday && weekday != time.Sunday
 
 }
 

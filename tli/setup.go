@@ -20,11 +20,11 @@ type setupField struct {
 func defaultSetupFields() []setupField {
 	fields := []setupField{
 		{Key: "user", Label: "User name", Default: "Zack", Hint: "Name shown on the dashboard."},
-		{Key: "initialBalance", Label: "Starting hours", Default: "120", Hint: "Current PTO balance in hours."},
-		{Key: "rate", Label: "Accrual rate", Default: "4.62", Hint: "Hours earned each pay period."},
-		{Key: "maxdays", Label: "Max days", Default: "25", Hint: "Maximum PTO days allowed to sit in the bank."},
+		{Key: "initialBalance", Label: "Starting hours", Default: "40", Hint: "Current PTO balance in hours."},
+		{Key: "rate", Label: "Accrual rate", Default: "3.52", Hint: "Hours earned each pay period."},
+		{Key: "maxdays", Label: "Max Hours", Default: "240", Hint: "Maximum hours days allowed to sit in the bank."},
 		{Key: "dailyHours", Label: "Daily hours", Default: "8", Hint: "Hours deducted for one PTO workday."},
-		{Key: "firstDay", Label: "First work day", Default: "2026-01-05", Hint: "Use YYYY-MM-DD."},
+		{Key: "firstDay", Label: "First work day", Default: "2026-02-09", Hint: "Use YYYY-MM-DD."},
 		{Key: "hasOffFridays", Label: "Off Fridays", Default: "yes", Hint: "Type yes or no."},
 		{Key: "whichFridayOff", Label: "Friday cycle", Default: "0", Hint: "Only used if you have off Fridays. Use 0 or 1."},
 	}
