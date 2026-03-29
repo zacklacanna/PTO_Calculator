@@ -80,16 +80,15 @@ func checkValidNewTrip(tripReq *config.Trip) (config.Trip, error) {
 		return config.Trip{}, fmt.Errorf("Could not create trip as it overlaps with %s", foundOverlapTrip.Name)
 	}
 
-	runningBalance, err := CalculatePtoAtDate(tripReq)
-	if err != nil {
-		return config.Trip{}, fmt.Errorf("Not enough PTO at start date to book this trip!")
+	if _, err := CalculatePtoAtDate(tripReq); err != nil {
+		return config.Trip{}, fmt.Errorf("not enough PTO at start date to book this trip")
 	}
 
-	if runningBalance >= 0 {
-		return *tripReq, nil
-	} else {
-		return config.Trip{}, fmt.Errorf("Could not create trip as would exceed PTO Balance!")
+	if err := ValidateProjectedTrips(tripReq); err != nil {
+		return config.Trip{}, err
 	}
+
+	return *tripReq, nil
 }
 
 func hasOverlappingTrip(newTrip *config.Trip, savedTrips *config.SavedTrips) (config.Trip, bool) {

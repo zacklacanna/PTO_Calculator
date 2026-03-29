@@ -181,6 +181,12 @@ func buildTripPreview(fields []tripField) (*tripPreview, error) {
 		return preview, nil
 	}
 
+	if err := pto.ValidateProjectedTrips(&trip); err != nil {
+		preview.ValidationMessage = err.Error()
+		preview.ValidationIsFailure = true
+		return preview, nil
+	}
+
 	if preview.EndBalance < 0 {
 		preview.ValidationMessage = "Trip exceeds the projected PTO available at the start date."
 		preview.ValidationIsFailure = true

@@ -49,12 +49,6 @@ func CalculatePtoOnDate(date time.Time) (float64, error) {
 	holidays := config.GetHolidays()
 	targetDate := normalizeDate(date)
 
-	// Running balance
-	runningBalance := cfg.InitialBalance
-
-	runningBalance += calculateAccruedPTO(targetDate, cfg)
-
-	// Iterate through each trip and subtract from logic
 	sortedTrips := make([]config.Trip, 0, len(trips.Trips))
 	for _, trip := range trips.Trips {
 		sortedTrips = append(sortedTrips, trip)
@@ -63,25 +57,7 @@ func CalculatePtoOnDate(date time.Time) (float64, error) {
 		return a.StartDate.Compare(b.StartDate)
 	})
 
-	for _, trip := range sortedTrips {
-		if normalizeDate(trip.StartDate).After(targetDate) {
-			continue
-		}
-
-		tripHours, err := CalcultePtoOfTrip(&trip, cfg, holidays)
-		if err != nil {
-			return -1, err
-		}
-
-		if runningBalance-tripHours < 0 {
-			return -1, fmt.Errorf("trip %s would exceed the PTO balance", trip.Name)
-		}
-
-		runningBalance -= tripHours
-	}
-
-	maxHours := float64(cfg.Max)
-	return math.Min(maxHours, runningBalance), nil
+	return simulateProjectedBalance(sortedTrips, cfg, holidays, &targetDate)
 }
 
 func calculateAccruedPTO(targetDate time.Time, cfg *config.Config) float64 {
@@ -96,6 +72,73 @@ func calculateAccruedPTO(targetDate time.Time, cfg *config.Config) float64 {
 	}
 
 	return float64(accruals) * cfg.Rate
+}
+
+func ValidateProjectedTrips(candidate *config.Trip) error {
+	if err := LoadTrips(); err != nil {
+		return err
+	}
+	if err := LoadHolidays(); err != nil {
+		return err
+	}
+
+	cfg := config.GetSettings()
+	holidays := config.GetHolidays()
+
+	trips := make([]config.Trip, 0, len(config.GetSavedTrips().Trips)+1)
+	for _, trip := range config.GetSavedTrips().Trips {
+		trips = append(trips, trip)
+	}
+	trips = append(trips, *candidate)
+	slices.SortFunc(trips, func(a config.Trip, b config.Trip) int {
+		return a.StartDate.Compare(b.StartDate)
+	})
+
+	_, err := simulateProjectedBalance(trips, cfg, holidays, nil)
+	return err
+}
+
+func simulateProjectedBalance(
+	trips []config.Trip,
+	cfg *config.Config,
+	holidays *config.SavedHolidays,
+	targetDate *time.Time,
+) (float64, error) {
+	runningBalance := math.Min(float64(cfg.Max), cfg.InitialBalance)
+	nextAccrualDate, hasAccrual := nextAccrualDate(cfg.FirstDay, cfg)
+
+	applyAccruals := func(until time.Time) {
+		for hasAccrual && !nextAccrualDate.After(until) {
+			runningBalance = math.Min(float64(cfg.Max), runningBalance+cfg.Rate)
+			nextAccrualDate = nextAccrualDate.AddDate(0, 0, 14)
+		}
+	}
+
+	for _, trip := range trips {
+		tripStart := normalizeDate(trip.StartDate)
+		if targetDate != nil && tripStart.After(*targetDate) {
+			break
+		}
+
+		applyAccruals(tripStart)
+
+		tripHours, err := CalcultePtoOfTrip(&trip, cfg, holidays)
+		if err != nil {
+			return -1, err
+		}
+
+		if runningBalance-tripHours < 0 {
+			return -1, fmt.Errorf("trip %s would exceed the PTO balance", trip.Name)
+		}
+
+		runningBalance -= tripHours
+	}
+
+	if targetDate != nil {
+		applyAccruals(*targetDate)
+	}
+
+	return runningBalance, nil
 }
 
 func nextAccrualDate(firstDay time.Time, cfg *config.Config) (time.Time, bool) {
