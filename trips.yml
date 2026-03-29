@@ -1,9 +1,0 @@
-trips:
-    Miami:
-        name: Miami
-        startDate: 2026-04-22T00:00:00Z
-        endDate: 2026-04-24T00:00:00Z
-    New York:
-        name: New York
-        startDate: 2026-05-13T00:00:00Z
-        endDate: 2026-05-15T00:00:00Z
